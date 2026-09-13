@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZKMEER Daily Invoice & Cash Manager</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Poppins', sans-serif; background-color: #f1f5f9; color: #334155; transition: background-color 0.3s ease; }
+        .screen { display: none; opacity: 0; transition: opacity 0.3s ease-in-out; }
+        .screen.active { display: block; opacity: 1; }
+        
+        /* Print Styles Fixed */
+        #printableInvoice, #printableMonthlyReport { display: none; }
+        
+        @media print {
+            body * { visibility: hidden !important; }
+            .no-print { display: none !important; }
+
+            /* Only show invoice if active print triggered from invoice */
+            body.print-invoice #printableInvoice, 
+            body.print-invoice #printableInvoice * { visibility: visible !important; }
+            body.print-invoice #printableInvoice { 
+                display: block !important; 
+                position: absolute; 
+                left: 0; 
+                top: 0; 
+                width: 100%; 
+                background: white; 
+                padding: 10px; 
+                color: black; 
+            }
+
+            /* Only show monthly report if triggered from monthly screen */
+            body.print-monthly #printableMonthlyReport, 
+            body.print-monthly #printableMonthlyReport * { visibility: visible !important; }
+            body.print-monthly #printableMonthlyReport { 
+                display: block !important; 
+                position: absolute; 
+                left: 0; 
+                top: 0; 
+                width: 100%; 
+                background: white; 
+                padding: 10px; 
+                color: black; 
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-2 sm:p-6" id="appBody">
+
+    <!-- PASSWORD LOCK SCREEN OVERLAY -->
+    <div id="passwordLockScreen" class="fixed inset-0 bg-slate-950 z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center space-y-4">
+            <div class="bg-blue-100 text-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto text-xl font-bold">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <div>
+                <h2 class="font-bold text-slate-800 text-base">Protected Application</h2>
+                <p class="text-xs text-slate-400 mt-1">Please enter the security password to access ZKMEER Daily Cash Manager.</p>
+            </div>
+            
+            <div class="space-y-3">
+                <input type="password" id="appPasswordInput" placeholder="Enter Password" 
+                    class="w-full px-4 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl text-center focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="verifyAppPassword()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-semibold shadow transition">
+                    Unlock Application
+                </button>
+            </div>
+            <p id="passwordErrorMsg" class="text-xs text-rose-500 hidden font-medium">Incorrect password. Try again.</p>
+        </div>
+    </div>
+
+    <!-- Top Header -->
+    <header id="mainHeader" class="w-full max-w-4xl mx-auto bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-col md:flex-row justify-between items-center gap-3 mb-4 no-print">
+        <div class="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+            <div class="flex items-center space-x-3">
+                <div class="theme-accent-bg bg-blue-600 p-2.5 rounded-xl text-white font-bold text-lg"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+                <div>
+                    <!-- Editable Brand / Main Title Header -->
+                    <input type="text" id="brandTitleInput" value="ZKMEER Daily Invoice" 
+                        class="font-bold text-base sm:text-lg tracking-wide bg-transparent border-b border-slate-600 focus:border-blue-400 focus:outline-none text-white w-44 sm:w-52" 
+                        oninput="updateBrandTitle(this.value)" title="Click to edit main title">
+                    <p class="text-xs text-slate-400 mt-0.5" id="headerDate">Loading...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Title Setting Input -->
+        <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 w-full md:w-auto">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold whitespace-nowrap">Header Name:</span>
+            <input type="text" id="globalTitleInput" value="CANDYLAND DISTRIBUTION (ZKMEER)" 
+                class="bg-slate-900 text-white text-xs px-2 py-1 rounded-lg border border-slate-600 focus:outline-none w-full md:w-40" 
+                oninput="updateGlobalTitle(this.value)">
+        </div>
+
+        <!-- Date Selector to view/generate past invoices -->
+        <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 w-full md:w-auto justify-between md:justify-start">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold whitespace-nowrap">Select Date:</span>
+            <input type="date" id="invoiceDateSelector" class="bg-slate-900 text-white text-xs px-2 py-1 rounded-lg border border-slate-600 focus:outline-none w-full md:w-auto" onchange="loadInvoiceForSelectedDate()">
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="w-full max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 flex-1 flex flex-col overflow-hidden mb-16 sm:mb-4 no-print">
+        
+        <!-- Navigation Tabs -->
+        <nav class="bg-slate-50 border-b border-slate-100 p-2 flex flex-wrap gap-1.5 justify-center md:justify-start">
+            <button onclick="switchScreen('salesmen')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-blue-600 bg-blue-50 transition flex items-center gap-1.5" data-target="salesmen">
+                <i class="fa-solid fa-users"></i> Salesmen
+            </button>
+            <button onclick="switchScreen('collection')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="collection">
+                <i class="fa-solid fa-file-invoice"></i> Load & Collection
+            </button>
+            <button onclick="switchScreen('credit')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="credit">
+                <i class="fa-solid fa-file-lines"></i> Credit Bills
+            </button>
+            <button onclick="switchScreen('closing')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="closing">
+                <i class="fa-solid fa-coins"></i> Denominations
+            </button>
+            <button onclick="switchScreen('invoice')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="invoice">
+                <i class="fa-solid fa-print"></i> Invoice
+            </button>
+            <button onclick="switchScreen('monthly')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="monthly">
+                <i class="fa-solid fa-calendar-days"></i> Monthly Report
+            </button>
+            <button onclick="switchScreen('theme')" class="nav-btn px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5" data-target="theme">
+                <i class="fa-solid fa-palette"></i> Theme
+            </button>
+        </nav>
+
+        <!-- Dynamic Screens Area -->
+        <div class="p-4 sm:p-6 flex-1 overflow-y-auto">
+
+            <!-- SCREEN 1: Salesmen Management -->
+            <div id="screen-salesmen" class="screen active space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                        <h2 class="font-semibold text-slate-800 mb-3 flex items-center"><i class="fa-solid fa-user-plus text-blue-600 mr-2"></i> Add New Salesman</h2>
+                        <div class="space-y-3">
+                            <div class="flex gap-2">
+                                <input type="text" id="newSalesmanName" placeholder="Enter Salesman Name" 
+                                    class="w-full px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button type="button" onclick="clearField('newSalesmanName')" class="bg-rose-500 text-white px-3 py-2.5 rounded-xl text-xs hover:bg-rose-600"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <button onclick="addSalesman()" class="theme-accent-btn w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-medium shadow-md transition">
+                                Add Salesman
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Active Salesmen List (Click name to edit)</h3>
+                        <div id="salesmenListContainer" class="divide-y divide-slate-200 max-h-[250px] overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 2: Collections & Load Form -->
+            <div id="screen-collection" class="screen space-y-6">
+                <div class="max-w-3xl mx-auto bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-100">
+                    <h2 class="font-semibold text-slate-800 mb-1 flex items-center"><i class="fa-solid fa-file-invoice text-emerald-600 mr-2"></i> Salesman Load & Actual Cash Entry</h2>
+                    <p class="text-xs text-slate-400 mb-4">Har salesman ki expected load amount aur actual cash enter karein. (Enter dabane se agle khanay par move honge)</p>
+                    
+                    <div class="grid grid-cols-1 gap-3" id="collectionInputsContainer"></div>
+
+                    <div class="mt-6 pt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div class="text-center sm:text-left">
+                            <span class="text-[10px] text-slate-400 block uppercase">Total Expected Load</span>
+                            <span class="text-lg font-bold text-slate-800">Rs <span id="totalExpectedDisplay">0</span></span>
+                        </div>
+                        <button onclick="switchScreen('credit')" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow transition">
+                            Next: Credit Bills <i class="fa-solid fa-arrow-right ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 3: Credit Bills -->
+            <div id="screen-credit" class="screen space-y-6">
+                <div class="max-w-2xl mx-auto bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-100">
+                    <h2 class="font-semibold text-slate-800 mb-1 flex items-center"><i class="fa-solid fa-file-lines text-purple-600 mr-2"></i> Credit Bills / Short Recovery Entry</h2>
+                    <p class="text-xs text-slate-400 mb-4">Agar koi bill udhaar ya short hua hai toh yahan add karein.</p>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                        <select id="creditSalesmanSelect" class="px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none">
+                            <option value="">Select Salesman</option>
+                        </select>
+                        <div class="flex gap-1">
+                            <input type="text" id="creditBillName" placeholder="Customer / Bill No" class="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none">
+                            <button type="button" onclick="clearField('creditBillName')" class="bg-rose-500 text-white px-2.5 py-2 rounded-xl text-xs"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="flex gap-1">
+                            <input type="number" id="creditBillAmount" placeholder="Amount (Rs)" class="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none">
+                            <button type="button" onclick="clearField('creditBillAmount')" class="bg-rose-500 text-white px-2.5 py-2 rounded-xl text-xs"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <button onclick="addCreditBill()" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-sm font-medium shadow transition mb-4">
+                        <i class="fa-solid fa-plus mr-1"></i> Add Credit Bill
+                    </button>
+
+                    <div class="border border-slate-200 rounded-xl bg-white overflow-x-auto max-h-[180px] mb-4">
+                        <table class="w-full text-left text-xs min-w-[300px]">
+                            <thead class="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th class="p-2">Salesman</th>
+                                    <th class="p-2">Customer / Bill</th>
+                                    <th class="p-2 text-right">Amount</th>
+                                    <th class="p-2 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="creditBillsTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row justify-between items-center gap-4 pt-3 border-t border-slate-200">
+                        <div class="text-center sm:text-left">
+                            <span class="text-xs text-slate-500 block">Total Credit Bills</span>
+                            <span class="text-lg font-bold text-slate-800">Rs <span id="totalCreditDisplay">0</span></span>
+                        </div>
+                        <button onclick="switchScreen('closing')" class="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow transition">
+                            Next: Denominations <i class="fa-solid fa-arrow-right ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 4: Cash Denominations -->
+            <div id="screen-closing" class="screen space-y-6">
+                <div class="max-w-2xl mx-auto bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-100">
+                    <h2 class="font-semibold text-slate-800 mb-3 flex items-center"><i class="fa-solid fa-coins text-amber-600 mr-2"></i> Physical Cash Breakdown</h2>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="denomRowsContainer"></div>
+
+                    <div class="mt-6 pt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div class="text-center sm:text-left">
+                            <span class="text-xs text-slate-500 block">Total Physical Cash</span>
+                            <span class="text-xl font-bold text-slate-800">Rs <span id="totalPhysicalDisplay">0</span></span>
+                        </div>
+                        <button onclick="switchScreen('invoice')" class="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow transition">
+                            View Invoice <i class="fa-solid fa-arrow-right ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 5: Invoice Preview & Final Action -->
+            <div id="screen-invoice" class="screen space-y-6">
+                <div class="max-w-2xl mx-auto bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-100 text-center">
+                    <h2 class="font-semibold text-slate-800 mb-2 flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-blue-600 mr-2"></i> Daily Cash Invoice Ready</h2>
+                    <p class="text-xs text-slate-400 mb-6">Aap ki rozana ki invoice taiyar hai. Neeche diye gaye buttons se Print karein ya Edit form mein kholein.</p>
+                    
+                    <div id="invoiceSummaryCard" class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm mb-6 text-left space-y-2">
+                        <div class="flex justify-between text-xs border-b pb-2">
+                            <span class="text-slate-500">Invoice Date:</span>
+                            <span class="font-bold text-slate-800" id="invPreviewDate">--/--/----</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">Total Expected Load:</span>
+                            <span class="font-bold text-slate-800">Rs <span id="invPreviewExpected">0</span></span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">Physical Cash + Credit:</span>
+                            <span class="font-bold text-emerald-700">Rs <span id="invPreviewAccounted">0</span></span>
+                        </div>
+                        <div class="flex justify-between text-xs border-t pt-2">
+                            <span class="text-slate-500 font-bold">Status / Difference:</span>
+                            <span class="font-extrabold" id="invPreviewStatus">Matched</span>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <button onclick="printInvoice()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-medium text-sm shadow-lg transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-print"></i> Print Invoice
+                        </button>
+                        <button onclick="openEditInvoiceModal()" class="theme-accent-btn flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium text-sm shadow-lg transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-pen-to-square"></i> Edit Text Form
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 6: Monthly / Date Range Summary Report -->
+            <div id="screen-monthly" class="screen space-y-6">
+                <div class="max-w-2xl mx-auto bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-100">
+                    <h2 class="font-semibold text-slate-800 mb-2 flex items-center"><i class="fa-solid fa-calendar-days text-indigo-600 mr-2"></i> Date Range / Monthly Report</h2>
+                    <p class="text-xs text-slate-400 mb-4">Start date aur End date select karein taake us arsay (range) ka mukammal juma shuda (consolidated) print nikal sakay.</p>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold block mb-1">Start Date</label>
+                            <input type="date" id="rangeStartDate" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold block mb-1">End Date</label>
+                            <input type="date" id="rangeEndDate" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none">
+                        </div>
+                    </div>
+
+                    <button onclick="generateMonthlyReport()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold shadow transition mb-6">
+                        <i class="fa-solid fa-calculator mr-1"></i> Calculate & View Summary
+                    </button>
+
+                    <!-- Summary Result Box -->
+                    <div id="monthlyResultContainer" class="hidden bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-3">
+                        <div class="text-center border-b pb-2">
+                            <h3 class="font-bold text-slate-800 text-sm">Summary Result</h3>
+                            <p class="text-[11px] text-slate-500" id="monthlyRangeLabel">-- to --</p>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">Total Expected Load (Range):</span>
+                            <span class="font-bold text-slate-800">Rs <span id="mTotalExpected">0</span></span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">Total Actual Cash Given:</span>
+                            <span class="font-bold text-slate-800">Rs <span id="mTotalActual">0</span></span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">Total Credit Bills:</span>
+                            <span class="font-bold text-purple-700">Rs <span id="mTotalCredit">0</span></span>
+                        </div>
+                        <div class="flex justify-between text-xs border-t pt-2">
+                            <span class="text-slate-500 font-bold">Overall Status:</span>
+                            <span class="font-extrabold" id="mTotalStatus">Matched</span>
+                        </div>
+
+                        <button onclick="printMonthlyReport()" class="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl text-xs font-bold shadow transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-print"></i> Print Monthly / Range Report
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 7: Theme & Appearance Settings -->
+            <div id="screen-theme" class="screen space-y-6">
+                <div class="max-w-xl mx-auto bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-100 text-center">
+                    <h2 class="font-semibold text-slate-800 mb-2 flex items-center justify-center"><i class="fa-solid fa-palette text-blue-600 mr-2"></i> Customise Application Theme</h2>
+                    <p class="text-xs text-slate-400 mb-6">Apni pasand ka color theme select karein jo poori app par apply ho jaye ga.</p>
+                    
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <button onclick="setAppTheme('slate')" class="p-4 rounded-xl border-2 border-slate-800 bg-slate-900 text-white font-semibold text-xs shadow hover:scale-105 transition">
+                            <i class="fa-solid fa-circle text-slate-400 mb-2 text-base"></i><br>Dark Slate
+                        </button>
+                        <button onclick="setAppTheme('blue')" class="p-4 rounded-xl border-2 border-blue-600 bg-blue-600 text-white font-semibold text-xs shadow hover:scale-105 transition">
+                            <i class="fa-solid fa-circle text-blue-200 mb-2 text-base"></i><br>Royal Blue
+                        </button>
+                        <button onclick="setAppTheme('emerald')" class="p-4 rounded-xl border-2 border-emerald-600 bg-emerald-600 text-white font-semibold text-xs shadow hover:scale-105 transition">
+                            <i class="fa-solid fa-circle text-emerald-200 mb-2 text-base"></i><br>Emerald Green
+                        </button>
+                        <button onclick="setAppTheme('purple')" class="p-4 rounded-xl border-2 border-purple-600 bg-purple-600 text-white font-semibold text-xs shadow hover:scale-105 transition">
+                            <i class="fa-solid fa-circle text-purple-200 mb-2 text-base"></i><br>Deep Purple
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- OFFICIAL PRINTABLE INVOICE TEMPLATE -->
+    <div id="printableInvoice">
+        <div style="text-align: center; margin-bottom: 12px;">
+            <h2 id="printInvoiceTitle" style="margin: 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">ZKMEER Daily Invoice</h2>
+            <p style="margin: 2px 0; font-size: 12px; font-weight: 600;" id="printSubInvoiceTitle">Daily Cash & Recovery Invoice</p>
+            <p style="margin: 2px 0; font-size: 10px; color: #333;" id="printInvoiceDate">Date: --/--/----</p>
+        </div>
+        <hr style="border: 0.5px solid #444; margin: 6px 0;">
+        
+        <h3 style="font-size: 11px; margin: 6px 0 3px 0; font-weight: bold;">1. Salesmen Load & Collection:</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+            <thead>
+                <tr style="background: #f2f2f2;">
+                    <th style="border: 1px solid #999; padding: 3px; width: 25px;">Sr</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Salesman Name</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 75px;">Expected</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 75px;">Actual</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 65px;">Diff</th>
+                </tr>
+            </thead>
+            <tbody id="printInvoiceSalesmenBody"></tbody>
+        </table>
+        
+        <h3 style="font-size: 11px; margin: 6px 0 3px 0; font-weight: bold;">2. Credit Bills Attached:</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+            <thead>
+                <tr style="background: #f2f2f2;">
+                    <th style="border: 1px solid #999; padding: 3px; width: 25px;">Sr</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Salesman</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Customer / Bill No</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 80px;">Amount</th>
+                </tr>
+            </thead>
+            <tbody id="printInvoiceCreditBody"></tbody>
+        </table>
+
+        <h3 style="font-size: 11px; margin: 6px 0 3px 0; font-weight: bold;">3. Cash Denominations:</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+            <thead>
+                <tr style="background: #f2f2f2;">
+                    <th style="border: 1px solid #999; padding: 3px;">Denomination</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: center;">Qty</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right;">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody id="printInvoiceDenomBody"></tbody>
+        </table>
+
+        <div style="font-size: 10px; font-weight: bold; margin-top: 6px; border-top: 1px solid #444; background: #f9f9f9; padding: 5px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Expected Load:</span>
+                <span>Rs <span id="printInvExpected">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Actual Cash Given:</span>
+                <span>Rs <span id="printInvActual">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Credit Bills:</span>
+                <span>Rs <span id="printInvCredit">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Physical Cash:</span>
+                <span>Rs <span id="printInvPhysical">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed #999; padding-top: 3px;">
+                <span>Final Status:</span>
+                <span id="printInvStatus">Matched</span>
+            </div>
+        </div>
+
+        <div style="margin-top: 25px; display: flex; justify-content: space-between; font-size: 10px;">
+            <div>Prepared By: _________________________</div>
+            <div>Manager Signature: _________________________</div>
+        </div>
+    </div>
+
+    <!-- MONTHLY / RANGE PRINTABLE REPORT TEMPLATE -->
+    <div id="printableMonthlyReport">
+        <div style="text-align: center; margin-bottom: 12px;">
+            <h2 id="printMonthlyTitle" style="margin: 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">ZKMEER Daily Invoice</h2>
+            <p style="margin: 2px 0; font-size: 12px; font-weight: 600;">Consolidated Date Range Summary Report</p>
+            <p style="margin: 2px 0; font-size: 10px; color: #333;" id="printRangeLabel">Range: -- to --</p>
+        </div>
+        <hr style="border: 0.5px solid #444; margin: 6px 0;">
+        
+        <h3 style="font-size: 11px; margin: 6px 0 3px 0; font-weight: bold;">1. Consolidated Salesmen Performance:</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+            <thead>
+                <tr style="background: #f2f2f2;">
+                    <th style="border: 1px solid #999; padding: 3px; width: 25px;">Sr</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Salesman Name</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 85px;">Total Expected</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 85px;">Total Actual</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 70px;">Diff</th>
+                </tr>
+            </thead>
+            <tbody id="printRangeSalesmenBody"></tbody>
+        </table>
+
+        <h3 style="font-size: 11px; margin: 6px 0 3px 0; font-weight: bold;">2. Consolidated Credit Bills Summary:</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px;">
+            <thead>
+                <tr style="background: #f2f2f2;">
+                    <th style="border: 1px solid #999; padding: 3px; width: 25px;">Sr</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Salesman / Customer</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: left;">Bill Detail</th>
+                    <th style="border: 1px solid #999; padding: 3px; text-align: right; width: 80px;">Amount</th>
+                </tr>
+            </thead>
+            <tbody id="printRangeCreditBody"></tbody>
+        </table>
+
+        <div style="font-size: 10px; font-weight: bold; margin-top: 8px; border-top: 1px solid #444; background: #f9f9f9; padding: 6px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Expected Load (Range):</span>
+                <span>Rs <span id="printRangeExp">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Actual Cash Given:</span>
+                <span>Rs <span id="printRangeAct">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span>Total Credit Bills:</span>
+                <span>Rs <span id="printRangeCred">0</span></span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed #999; padding-top: 3px;">
+                <span>Overall Range Status:</span>
+                <span id="printRangeStatus">Matched</span>
+            </div>
+        </div>
+
+        <div style="margin-top: 25px; display: flex; justify-content: space-between; font-size: 10px;">
+            <div>Prepared By: _________________________</div>
+            <div>Manager Signature: _________________________</div>
+        </div>
+    </div>
+
+    <!-- EDIT INVOICE TEXT FORM MODAL -->
+    <div id="editInvoiceModal" class="fixed inset-0 bg-slate-900/65 backdrop-blur-xs hidden justify-center items-center p-4 z-50">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-pen-to-square text-blue-600"></i> Edit Invoice Text Form</h3>
+                <button onclick="closeEditInvoiceModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[10px] text-slate-400 uppercase font-semibold">Invoice Date</label>
+                    <input type="text" id="editFormDate" class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl" readonly>
+                </div>
+
+                <!-- Salesmen Edit Section -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-700 mb-1">Salesmen Expected & Actual:</h4>
+                    <div id="editFormSalesmenContainer" class="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-[150px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Credit Bills Edit Section -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-700 mb-1">Credit Bills:</h4>
+                    <div id="editFormCreditContainer" class="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-[130px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Denominations Edit Section -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-700 mb-1">Denominations Qty:</h4>
+                    <div id="editFormDenomContainer" class="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200"></div>
+                </div>
+            </div>
+
+            <div class="flex gap-2 pt-2 border-top">
+                <button onclick="closeEditInvoiceModal()" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-2.5 rounded-xl text-xs font-semibold">Cancel</button>
+                <button onclick="saveEditedInvoice()" class="theme-accent-btn flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-xs font-semibold shadow">Save & Update</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        let todayIso = new Date().toISOString().split('T')[0];
+        let displayDateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        
+        document.getElementById('headerDate').innerText = displayDateStr;
+        document.getElementById('invoiceDateSelector').value = todayIso;
+        document.getElementById('rangeStartDate').value = todayIso;
+        document.getElementById('rangeEndDate').value = todayIso;
+
+        let salesmenData = JSON.parse(localStorage.getItem('zk_salesmen_' + todayIso)) || [];
+        let creditBillsData = JSON.parse(localStorage.getItem('zk_credit_' + todayIso)) || [];
+        let denomValues = JSON.parse(localStorage.getItem('zk_denom_' + todayIso)) || { 500:0, 100:0, 50:0, 20:0, 10:0 };
+        let customBrandTitle = localStorage.getItem('zk_brand_title') || "ZKMEER Daily Invoice";
+        let customGlobalTitle = localStorage.getItem('zk_global_title') || "CANDYLAND DISTRIBUTION (ZKMEER)";
+        let currentTheme = localStorage.getItem('zk_app_theme') || 'slate';
+
+        document.getElementById('brandTitleInput').value = customBrandTitle;
+        document.getElementById('globalTitleInput').value = customGlobalTitle;
+
+        const denoms = [500, 100, 50, 20, 10];
+
+        // Password Authentication Logic
+        function verifyAppPassword() {
+            let passInput = document.getElementById('appPasswordInput').value;
+            let errorMsg = document.getElementById('passwordErrorMsg');
+            
+            if(passInput === "zkmeer.@1122") {
+                document.getElementById('passwordLockScreen').style.display = 'none';
+                sessionStorage.setItem('zk_app_unlocked', 'true');
+            } else {
+                errorMsg.classList.remove('hidden');
+                document.getElementById('appPasswordInput').value = '';
+                document.getElementById('appPasswordInput').focus();
+            }
+        }
+
+        window.onload = function() {
+            if(sessionStorage.getItem('zk_app_unlocked') === 'true') {
+                document.getElementById('passwordLockScreen').style.display = 'none';
+            } else {
+                document.getElementById('appPasswordInput').focus();
+            }
+
+            renderSalesmenList();
+            renderCollectionInputs();
+            renderCreditDropdown();
+            renderCreditBillsTable();
+            renderDenominations();
+            updateInvoicePreview();
+            updateBrandTitle(customBrandTitle, false);
+            updateGlobalTitle(customGlobalTitle, false);
+            setAppTheme(currentTheme, false);
+        };
+
+        // Helper function to clear any input field instantly
+        function clearField(fieldId) {
+            let field = document.getElementById(fieldId);
+            if(field) {
+                field.value = '';
+                field.focus();
+            }
+        }
+
+        function getActiveDateKey() {
+            return document.getElementById('invoiceDateSelector').value;
+        }
+
+        function updateBrandTitle(val, save = true) {
+            let titleText = val.trim() || "ZKMEER Daily Invoice";
+            document.getElementById('printInvoiceTitle').innerText = titleText;
+            document.getElementById('printMonthlyTitle').innerText = titleText;
+            if(save) {
+                localStorage.setItem('zk_brand_title', titleText);
+            }
+        }
+
+        function updateGlobalTitle(val, save = true) {
+            let titleText = val.trim() || "CANDYLAND DISTRIBUTION (ZKMEER)";
+            if(save) {
+                localStorage.setItem('zk_global_title', titleText);
+            }
+        }
+
+        function setAppTheme(themeName, save = true) {
+            currentTheme = themeName;
+            if(save) localStorage.setItem('zk_app_theme', themeName);
+
+            let headerEl = document.getElementById('mainHeader');
+            headerEl.className = "w-full max-w-4xl mx-auto text-white p-4 rounded-2xl shadow-lg flex flex-col md:flex-row justify-between items-center gap-3 mb-4 no-print ";
+            
+            if(themeName === 'slate') headerEl.classList.add('bg-slate-900');
+            else if(themeName === 'blue') headerEl.classList.add('bg-blue-900');
+            else if(themeName === 'emerald') headerEl.classList.add('bg-emerald-900');
+            else if(themeName === 'purple') headerEl.classList.add('bg-purple-900');
+
+            let accentClass = 'bg-blue-600 hover:bg-blue-700';
+            if(themeName === 'blue') accentClass = 'bg-blue-600 hover:bg-blue-700';
+            if(themeName === 'emerald') accentClass = 'bg-emerald-600 hover:bg-emerald-700';
+            if(themeName === 'purple') accentClass = 'bg-purple-600 hover:bg-purple-700';
+            if(themeName === 'slate') accentClass = 'bg-slate-800 hover:bg-slate-900';
+
+            document.querySelectorAll('.theme-accent-btn').forEach(btn => {
+                btn.className = btn.className.replace(/bg-[a-z]+-600/g, '').replace(/hover:bg-[a-z]+-700/g, '');
+                btn.classList.add(...accentClass.split(' '));
+            });
+            document.querySelectorAll('.theme-accent-bg').forEach(el => {
+                el.className = el.className.replace(/bg-[a-z]+-600/g, '');
+                el.classList.add(accentClass.split(' ')[0]);
+            });
+        }
+
+        function loadInvoiceForSelectedDate() {
+            let dateKey = getActiveDateKey();
+            salesmenData = JSON.parse(localStorage.getItem('zk_salesmen_' + dateKey)) || JSON.parse(localStorage.getItem('zk_salesmen_default')) || [];
+            creditBillsData = JSON.parse(localStorage.getItem('zk_credit_' + dateKey)) || [];
+            denomValues = JSON.parse(localStorage.getItem('zk_denom_' + dateKey)) || { 500:0, 100:0, 50:0, 20:0, 10:0 };
+
+            renderSalesmenList();
+            renderCollectionInputs();
+            renderCreditDropdown();
+            renderCreditBillsTable();
+            renderDenominations();
+            updateInvoicePreview();
+        }
+
+        function saveDataToStorage() {
+            let dateKey = getActiveDateKey();
+            localStorage.setItem('zk_salesmen_' + dateKey, JSON.stringify(salesmenData));
+            localStorage.setItem('zk_credit_' + dateKey, JSON.stringify(creditBillsData));
+            localStorage.setItem('zk_denom_' + dateKey, JSON.stringify(denomValues));
+            localStorage.setItem('zk_salesmen_default', JSON.stringify(salesmenData));
+        }
+
+        function switchScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById('screen-' + screenId).classList.add('active');
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                if(btn.dataset.target === screenId) {
+                    btn.classList.remove('text-slate-600', 'hover:bg-slate-100');
+                    btn.classList.add('text-blue-600', 'bg-blue-50');
+                } else {
+                    btn.classList.remove('text-blue-600', 'bg-blue-50');
+                    btn.classList.add('text-slate-600', 'hover:bg-slate-100');
+                }
+            });
+            if(screenId === 'invoice') updateInvoicePreview();
+        }
+
+        function addSalesman() {
+            let nameInput = document.getElementById('newSalesmanName');
+            let name = nameInput.value.trim();
+            if(!name) return alert('Please enter a name');
+            salesmenData.push({ name: name, expected: 0, actual: 0 });
+            
+            nameInput.value = '';
+            saveAndRefresh();
+            nameInput.focus();
+        }
+
+        function deleteSalesman(index) {
+            salesmenData.splice(index, 1);
+            saveAndRefresh();
+        }
+
+        function updateSalesmanNamePrompt(index) {
+            let currentName = salesmenData[index].name;
+            let newName = prompt("Edit Salesman Name:", currentName);
+            if(newName !== null) {
+                newName = newName.trim();
+                if(newName) {
+                    salesmenData[index].name = newName;
+                    saveAndRefresh();
+                } else {
+                    alert("Name cannot be empty.");
+                }
+            }
+        }
+
+        function saveAndRefresh() {
+            saveDataToStorage();
+            renderSalesmenList();
+            renderCollectionInputs();
+            renderCreditDropdown();
+            renderCreditBillsTable();
+            updateInvoicePreview();
+        }
+
+        function renderSalesmenList() {
+            let container = document.getElementById('salesmenListContainer');
+            container.innerHTML = salesmenData.length === 0 ? '<p class="text-xs text-slate-400 text-center py-4">No salesmen added.</p>' : '';
+            salesmenData.forEach((s, idx) => {
+                container.innerHTML += `
+                    <div class="py-2.5 flex justify-between items-center text-sm">
+                        <span class="font-medium text-slate-700 cursor-pointer hover:text-blue-600 flex items-center gap-1.5" onclick="updateSalesmanNamePrompt(${idx})" title="Click to edit name">
+                            <i class="fa-solid fa-pen text-[10px] text-slate-400"></i> ${idx + 1}. ${s.name}
+                        </span>
+                        <button onclick="deleteSalesman(${idx})" class="text-rose-500 hover:text-rose-700 text-xs px-2 py-1"><i class="fa-solid fa-trash"></i></button>
+                    </div>`;
+            });
+        }
+
+        function renderCollectionInputs() {
+            let container = document.getElementById('collectionInputsContainer');
+            container.innerHTML = salesmenData.length === 0 ? '<p class="text-xs text-slate-400 text-center py-4">Add salesmen first from the Salesmen tab.</p>' : '';
+            salesmenData.forEach((s, idx) => {
+                let diff = (s.actual || 0) - (s.expected || 0);
+                let diffColor = diff === 0 ? 'text-slate-500' : (diff > 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold');
+                let diffText = diff === 0 ? 'Matched' : (diff > 0 ? `+${diff}` : `${diff}`);
+
+                container.innerHTML += `
+                    <div class="bg-white border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div class="w-full sm:w-1/3 flex items-center justify-between sm:justify-start gap-2">
+                            <div>
+                                <span class="text-xs font-bold text-slate-700 block cursor-pointer hover:text-blue-600 flex items-center gap-1" onclick="updateSalesmanNamePrompt(${idx})" title="Click to edit name">
+                                    <i class="fa-solid fa-pen text-[9px] text-slate-400"></i> ${idx + 1}. ${s.name}
+                                </span>
+                                <span class="text-[10px] ${diffColor}">Diff: Rs ${diffText}</span>
+                            </div>
+                        </div>
+                        <div class="w-full sm:w-2/3 grid grid-cols-2 gap-2">
+                            <div class="flex items-center gap-1">
+                                <div class="w-full">
+                                    <label class="text-[9px] text-slate-400 uppercase font-semibold block">Expected (Load)</label>
+                                    <input type="number" id="exp_${idx}" value="${s.expected || ''}" placeholder="0" 
+                                        class="collection-input w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        oninput="updateSalesmanField(${idx}, 'expected', this.value)"
+                                        onkeydown="handleCollectionKeydown(event, ${idx}, 'expected')">
+                                </div>
+                                <button type="button" onclick="clearField('exp_${idx}')" class="bg-rose-500 text-white px-2.5 py-1.5 rounded-lg text-xs mt-3"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <div class="w-full">
+                                    <label class="text-[9px] text-slate-400 uppercase font-semibold block">Actual Given</label>
+                                    <input type="number" id="act_${idx}" value="${s.actual || ''}" placeholder="0" 
+                                        class="collection-input w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                        oninput="updateSalesmanField(${idx}, 'actual', this.value)"
+                                        onkeydown="handleCollectionKeydown(event, ${idx}, 'actual')">
+                                </div>
+                                <button type="button" onclick="clearField('act_${idx}')" class="bg-rose-500 text-white px-2.5 py-1.5 rounded-lg text-xs mt-3"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+        }
+
+        // Handle Enter Key Navigation in Collection Screen
+        function handleCollectionKeydown(event, idx, fieldType) {
+            if(event.key === 'Enter') {
+                event.preventDefault();
+                let nextInput;
+                if(fieldType === 'expected') {
+                    // Move to actual of the same salesman
+                    nextInput = document.getElementById(`act_${idx}`);
+                } else {
+                    // Move to expected of the next salesman, or wrap around / stop
+                    let nextIdx = idx + 1;
+                    nextInput = document.getElementById(`exp_${nextIdx}`);
+                }
+                if(nextInput) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }
+        }
+
+        function updateSalesmanField(index, field, val) {
+            salesmenData[index][field] = parseFloat(val) || 0;
+            saveDataToStorage();
+            updateInvoicePreview();
+        }
+
+        function renderCreditDropdown() {
+            let select = document.getElementById('creditSalesmanSelect');
+            select.innerHTML = '<option value="">Select Salesman</option>';
+            salesmenData.forEach(s => {
+                select.innerHTML += `<option value="${s.name}">${s.name}</option>`;
+            });
+        }
+
+        function addCreditBill() {
+            let salesmanSelect = document.getElementById('creditSalesmanSelect');
+            let billNameInput = document.getElementById('creditBillName');
+            let amountInput = document.getElementById('creditBillAmount');
+
+            let salesman = salesmanSelect.value;
+            let billName = billNameInput.value.trim();
+            let amount = parseFloat(amountInput.value);
+
+            if(!salesman || !billName || isNaN(amount) || amount <= 0) {
+                return alert('Please fill all credit bill fields correctly.');
+            }
+
+            creditBillsData.push({ salesman, billName, amount });
+            
+            billNameInput.value = '';
+            amountInput.value = '';
+            billNameInput.focus();
+            
+            saveDataToStorage();
+            renderCreditBillsTable();
+            updateInvoicePreview();
+        }
+
+        function deleteCreditBill(index) {
+            creditBillsData.splice(index, 1);
+            saveDataToStorage();
+            renderCreditBillsTable();
+            updateInvoicePreview();
+        }
+
+        function renderCreditBillsTable() {
+            let tbody = document.getElementById('creditBillsTableBody');
+            tbody.innerHTML = creditBillsData.length === 0 ? '<tr><td colspan="4" class="p-3 text-center text-slate-400">No credit bills added.</td></tr>' : '';
+            creditBillsData.forEach((cb, idx) => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="p-2 font-medium text-slate-700">${cb.salesman}</td>
+                        <td class="p-2 text-slate-600">${cb.billName}</td>
+                        <td class="p-2 text-right font-semibold text-slate-800">Rs ${cb.amount.toLocaleString()}</td>
+                        <td class="p-2 text-center">
+                            <button onclick="deleteCreditBill(${idx})" class="text-rose-500 hover:text-rose-700 px-1"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+            });
+            let totalCredit = creditBillsData.reduce((sum, item) => sum + item.amount, 0);
+            document.getElementById('totalCreditDisplay').innerText = totalCredit.toLocaleString();
+        }
+
+        function renderDenominations() {
+            let container = document.getElementById('denomRowsContainer');
+            container.innerHTML = '';
+            denoms.forEach((d, idx) => {
+                let qty = denomValues[d] || 0;
+                let subtotal = qty * d;
+                container.innerHTML += `
+                    <div class="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
+                        <div class="w-1/4 font-semibold text-sm text-slate-700">Rs ${d}</div>
+                        <div class="w-1/3 flex items-center gap-1">
+                            <input type="number" id="denom_${idx}" min="0" value="${qty || ''}" placeholder="0" 
+                                class="denom-qty w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                data-val="${d}" oninput="updateDenom(this)"
+                                onkeydown="handleDenomKeydown(event, ${idx})">
+                            <button type="button" onclick="clearField('denom_${idx}')" class="bg-rose-500 text-white px-2 py-1 rounded-lg text-xs"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="w-1/3 text-right font-medium text-sm text-slate-600 subtotal-text">Rs ${subtotal.toLocaleString()}</div>
+                    </div>`;
+            });
+        }
+
+        // Handle Enter Key Navigation in Denominations Screen
+        function handleDenomKeydown(event, idx) {
+            if(event.key === 'Enter') {
+                event.preventDefault();
+                let nextIdx = idx + 1;
+                let nextInput = document.getElementById(`denom_${nextIdx}`);
+                if(nextInput) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }
+        }
+
+        function updateDenom(input) {
+            let val = input.dataset.val;
+            let qty = parseFloat(input.value) || 0;
+            denomValues[val] = qty;
+            let subtotal = qty * val;
+            input.closest('div').querySelector('.subtotal-text').innerText = 'Rs ' + subtotal.toLocaleString();
+            saveDataToStorage();
+            updateInvoicePreview();
+        }
+
+        function updateInvoicePreview() {
+            let dateKey = getActiveDateKey();
+            let formattedDate = new Date(dateKey).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+            document.getElementById('invPreviewDate').innerText = formattedDate;
+
+            let totalExpected = salesmenData.reduce((sum, item) => sum + (item.expected || 0), 0);
+            let totalActual = salesmenData.reduce((sum, item) => sum + (item.actual || 0), 0);
+            let totalCredit = creditBillsData.reduce((sum, item) => sum + item.amount, 0);
+            let totalPhysical = 0;
+            denoms.forEach(d => { totalPhysical += (denomValues[d] || 0) * d; });
+
+            let totalAccounted = totalPhysical + totalCredit;
+            let diff = totalAccounted - totalExpected;
+
+            document.getElementById('invPreviewExpected').innerText = totalExpected.toLocaleString();
+            document.getElementById('invPreviewAccounted').innerText = totalAccounted.toLocaleString();
+            document.getElementById('totalPhysicalDisplay').innerText = totalPhysical.toLocaleString();
+            document.getElementById('totalExpectedDisplay').innerText = totalExpected.toLocaleString();
+
+            let statusEl = document.getElementById('invPreviewStatus');
+            if(diff === 0) {
+                statusEl.innerText = "Matched Perfectly";
+                statusEl.className = "font-extrabold text-emerald-600";
+            } else if(diff > 0) {
+                statusEl.innerText = `Excess by Rs ${diff}`;
+                statusEl.className = "font-extrabold text-amber-600";
+            } else {
+                statusEl.innerText = `Short by Rs ${Math.abs(diff)}`;
+                statusEl.className = "font-extrabold text-rose-600";
+            }
+
+            document.getElementById('printInvoiceDate').innerText = "Date: " + formattedDate;
+
+            let sBody = document.getElementById('printInvoiceSalesmenBody');
+            sBody.innerHTML = '';
+            salesmenData.forEach((s, idx) => {
+                let exp = s.expected || 0;
+                let act = s.actual || 0;
+                let df = act - exp;
+                sBody.innerHTML += `<tr><td style="border: 1px solid #999; padding: 3px; text-align: center;">${idx+1}</td><td style="border: 1px solid #999; padding: 3px;">${s.name}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${exp.toLocaleString()}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${act.toLocaleString()}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${df}</td></tr>`;
+            });
+
+            let cBody = document.getElementById('printInvoiceCreditBody');
+            cBody.innerHTML = creditBillsData.length === 0 ? '<tr><td colspan="4" style="border: 1px solid #999; padding: 3px; text-align: center; color: #666;">No credit bills attached.</td></tr>' : '';
+            creditBillsData.forEach((cb, idx) => {
+                cBody.innerHTML += `<tr><td style="border: 1px solid #999; padding: 3px; text-align: center;">${idx+1}</td><td style="border: 1px solid #999; padding: 3px;">${cb.salesman}</td><td style="border: 1px solid #999; padding: 3px;">${cb.billName}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${(cb.amount||0).toLocaleString()}</td></tr>`;
+            });
+
+            let dBody = document.getElementById('printInvoiceDenomBody');
+            dBody.innerHTML = '';
+            denoms.forEach(d => {
+                let qty = denomValues[d] || 0;
+                let sub = qty * d;
+                dBody.innerHTML += `<tr><td style="border: 1px solid #999; padding: 3px;">Rs ${d}</td><td style="border: 1px solid #999; padding: 3px; text-align: center;">${qty}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${sub.toLocaleString()}</td></tr>`;
+            });
+
+            document.getElementById('printInvExpected').innerText = totalExpected.toLocaleString();
+            document.getElementById('printInvActual').innerText = totalActual.toLocaleString();
+            document.getElementById('printInvCredit').innerText = totalCredit.toLocaleString();
+            document.getElementById('printInvPhysical').innerText = totalPhysical.toLocaleString();
+            document.getElementById('printInvStatus').innerText = diff === 0 ? "Matched Perfectly" : (diff > 0 ? `Excess by Rs ${diff}` : `Short by Rs ${Math.abs(diff)}`);
+        }
+
+        function printInvoice() {
+            document.body.classList.remove('print-monthly');
+            document.body.classList.add('print-invoice');
+            window.print();
+            document.body.classList.remove('print-invoice');
+        }
+
+        function generateMonthlyReport() {
+            let startStr = document.getElementById('rangeStartDate').value;
+            let endStr = document.getElementById('rangeEndDate').value;
+
+            if(!startStr || !endStr) return alert('Please select both start and end dates.');
+            if(startStr > endStr) return alert('Start date cannot be greater than end date.');
+
+            let startDate = new Date(startStr);
+            let endDate = new Date(endStr);
+
+            let aggSalesmen = {};
+            let allCreditBills = [];
+            let grandExpected = 0;
+            let grandActual = 0;
+            let grandCredit = 0;
+
+            let curr = new Date(startDate);
+            while(curr <= endDate) {
+                let dIso = curr.toISOString().split('T')[0];
+                
+                let daySalesmen = JSON.parse(localStorage.getItem('zk_salesmen_' + dIso)) || [];
+                daySalesmen.forEach(s => {
+                    if(!aggSalesmen[s.name]) {
+                        aggSalesmen[s.name] = { expected: 0, actual: 0 };
+                    }
+                    aggSalesmen[s.name].expected += (s.expected || 0);
+                    aggSalesmen[s.name].actual += (s.actual || 0);
+                    grandExpected += (s.expected || 0);
+                    grandActual += (s.actual || 0);
+                });
+
+                let dayCredits = JSON.parse(localStorage.getItem('zk_credit_' + dIso)) || [];
+                dayCredits.forEach(cb => {
+                    allCreditBills.push(cb);
+                    grandCredit += (cb.amount || 0);
+                });
+
+                curr.setDate(curr.getDate() + 1);
+            }
+
+            document.getElementById('monthlyResultContainer').classList.remove('hidden');
+            let rangeLabelStr = `${startDate.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'})} to ${endDate.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'})}`;
+            document.getElementById('monthlyRangeLabel').innerText = rangeLabelStr;
+            document.getElementById('mTotalExpected').innerText = grandExpected.toLocaleString();
+            document.getElementById('mTotalActual').innerText = grandActual.toLocaleString();
+            document.getElementById('mTotalCredit').innerText = grandCredit.toLocaleString();
+
+            let diff = grandActual - grandExpected;
+            let mStatusEl = document.getElementById('mTotalStatus');
+            if(diff === 0) {
+                mStatusEl.innerText = "Matched Perfectly";
+                mStatusEl.className = "font-extrabold text-emerald-600";
+            } else if(diff > 0) {
+                mStatusEl.innerText = `Excess by Rs ${diff}`;
+                mStatusEl.className = "font-extrabold text-amber-600";
+            } else {
+                mStatusEl.innerText = `Short by Rs ${Math.abs(diff)}`;
+                mStatusEl.className = "font-extrabold text-rose-600";
+            }
+
+            document.getElementById('printRangeLabel').innerText = "Range: " + rangeLabelStr;
+
+            let pSalesBody = document.getElementById('printRangeSalesmenBody');
+            pSalesBody.innerHTML = Object.keys(aggSalesmen).length === 0 ? '<tr><td colspan="5" style="border: 1px solid #999; padding: 3px; text-align: center; color: #666;">No records found for this range.</td></tr>' : '';
+            let sIdx = 1;
+            for(let name in aggSalesmen) {
+                let exp = aggSalesmen[name].expected;
+                let act = aggSalesmen[name].actual;
+                let df = act - exp;
+                pSalesBody.innerHTML += `<tr><td style="border: 1px solid #999; padding: 3px; text-align: center;">${sIdx++}</td><td style="border: 1px solid #999; padding: 3px;">${name}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${exp.toLocaleString()}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${act.toLocaleString()}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${df}</td></tr>`;
+            }
+
+            let pCredBody = document.getElementById('printRangeCreditBody');
+            pCredBody.innerHTML = allCreditBills.length === 0 ? '<tr><td colspan="4" style="border: 1px solid #999; padding: 3px; text-align: center; color: #666;">No credit bills in this range.</td></tr>' : '';
+            allCreditBills.forEach((cb, idx) => {
+                pCredBody.innerHTML += `<tr><td style="border: 1px solid #999; padding: 3px; text-align: center;">${idx+1}</td><td style="border: 1px solid #999; padding: 3px;">${cb.salesman}</td><td style="border: 1px solid #999; padding: 3px;">${cb.billName}</td><td style="border: 1px solid #999; padding: 3px; text-align: right;">${(cb.amount||0).toLocaleString()}</td></tr>`;
+            });
+
+            document.getElementById('printRangeExp').innerText = grandExpected.toLocaleString();
+            document.getElementById('printRangeAct').innerText = grandActual.toLocaleString();
+            document.getElementById('printRangeCred').innerText = grandCredit.toLocaleString();
+            document.getElementById('printRangeStatus').innerText = diff === 0 ? "Matched Perfectly" : (diff > 0 ? `Excess by Rs ${diff}` : `Short by Rs ${Math.abs(diff)}`);
+        }
+
+        function printMonthlyReport() {
+            document.body.classList.remove('print-invoice');
+            document.body.classList.add('print-monthly');
+            window.print();
+            document.body.classList.remove('print-monthly');
+        }
+
+        function openEditInvoiceModal() {
+            let dateKey = getActiveDateKey();
+            document.getElementById('editFormDate').value = dateKey;
+
+            let sContainer = document.getElementById('editFormSalesmenContainer');
+            sContainer.innerHTML = '';
+            salesmenData.forEach((s, sIdx) => {
+                sContainer.innerHTML += `
+                    <div class="flex items-center justify-between gap-2 text-xs bg-white p-2 rounded-lg border">
+                        <span class="font-medium text-slate-700 w-1/3">${s.name}</span>
+                        <div class="w-1/3">
+                            <label class="text-[8px] text-slate-400 block uppercase">Expected</label>
+                            <input type="number" class="edit-s-exp w-full border rounded px-1.5 py-0.5 text-right" data-idx="${sIdx}" value="${s.expected || 0}">
+                        </div>
+                        <div class="w-1/3">
+                            <label class="text-[8px] text-slate-400 block uppercase">Actual</label>
+                            <input type="number" class="edit-s-act w-full border rounded px-1.5 py-0.5 text-right" data-idx="${sIdx}" value="${s.actual || 0}">
+                        </div>
+                    </div>`;
+            });
+
+            let cContainer = document.getElementById('editFormCreditContainer');
+            cContainer.innerHTML = creditBillsData.length === 0 ? '<p class="text-[11px] text-slate-400 text-center py-1">No credit bills.</p>' : '';
+            creditBillsData.forEach((cb, cIdx) => {
+                cContainer.innerHTML += `
+                    <div class="flex items-center gap-2 text-xs bg-white p-2 rounded-lg border">
+                        <span class="w-1/3 font-medium text-slate-700">${cb.salesman}</span>
+                        <input type="text" class="edit-cb-name w-1/3 border rounded px-1.5 py-0.5" data-idx="${cIdx}" value="${cb.billName}">
+                        <input type="number" class="edit-cb-amt w-1/3 border rounded px-1.5 py-0.5 text-right" data-idx="${cIdx}" value="${cb.amount}">
+                    </div>`;
+            });
+
+            let dContainer = document.getElementById('editFormDenomContainer');
+            dContainer.innerHTML = '';
+            denoms.forEach(d => {
+                let qty = denomValues[d] || 0;
+                dContainer.innerHTML += `
+                    <div class="bg-white p-2 rounded-lg border text-center">
+                        <span class="text-[10px] font-bold text-slate-600 block">Rs ${d}</span>
+                        <input type="number" class="edit-denom-qty w-full border rounded text-center text-xs py-0.5 mt-1" data-denom="${d}" value="${qty}">
+                    </div>`;
+            });
+
+            document.getElementById('editInvoiceModal').classList.remove('flex');
+            document.getElementById('editInvoiceModal').classList.add('flex');
+        }
+
+        function closeEditInvoiceModal() {
+            document.getElementById('editInvoiceModal').classList.remove('flex');
+            document.getElementById('editInvoiceModal').classList.add('hidden');
+        }
+
+        function saveEditedInvoice() {
+            let expInputs = document.querySelectorAll('.edit-s-exp');
+            let actInputs = document.querySelectorAll('.edit-s-act');
+            expInputs.forEach((inp, i) => {
+                salesmenData[i].expected = parseFloat(inp.value) || 0;
+                salesmenData[i].actual = parseFloat(actInputs[i].value) || 0;
+            });
+
+            let cbNames = document.querySelectorAll('.edit-cb-name');
+            let cbAmts = document.querySelectorAll('.edit-cb-amt');
+            cbNames.forEach((inp, i) => {
+                creditBillsData[i].billName = inp.value.trim();
+                creditBillsData[i].amount = parseFloat(cbAmts[i].value) || 0;
+            });
+
+            let denomInputs = document.querySelectorAll('.edit-denom-qty');
+            denomInputs.forEach(inp => {
+                let dVal = inp.dataset.denom;
+                denomValues[dVal] = parseFloat(inp.value) || 0;
+            });
+
+            saveDataToStorage();
+            renderCollectionInputs();
+            renderCreditBillsTable();
+            renderDenominations();
+            updateInvoicePreview();
+            
+            closeEditInvoiceModal();
+            alert('Invoice text form successfully updated!');
+        }
+    </script>
+</body>
+</html>
